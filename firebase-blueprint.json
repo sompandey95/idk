@@ -1,0 +1,70 @@
+{
+  "entities": {
+    "LeaderboardEntry": {
+      "title": "LeaderboardEntry",
+      "description": "A player high score and rank submission",
+      "type": "object",
+      "properties": {
+        "playerId": { "type": "string", "maxLength": 128 },
+        "displayName": { "type": "string", "maxLength": 50 },
+        "score": { "type": "number" },
+        "epoch": { "type": "number" },
+        "accuracy": { "type": "number" },
+        "region": { "type": "string", "maxLength": 16 },
+        "season": { "type": "string", "maxLength": 32 },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["playerId", "displayName", "score", "epoch", "accuracy", "region", "season", "timestamp"]
+    },
+    "PlayerProfile": {
+      "title": "PlayerProfile",
+      "description": "Cross-platform cloud synced player data",
+      "type": "object",
+      "properties": {
+        "playerId": { "type": "string", "maxLength": 128 },
+        "displayName": { "type": "string", "maxLength": 50 },
+        "avatar": { "type": "string", "maxLength": 64 },
+        "region": { "type": "string", "maxLength": 16 },
+        "highScore": { "type": "number" },
+        "totalGames": { "type": "number" },
+        "ddaRating": { "type": "number" },
+        "achievements": { "type": "string", "maxLength": 1000 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["playerId", "displayName", "avatar", "region", "highScore", "totalGames", "ddaRating", "achievements", "updatedAt"]
+    },
+    "MultiplayerMatch": {
+      "title": "MultiplayerMatch",
+      "description": "Multiplayer competitive duel session",
+      "type": "object",
+      "properties": {
+        "matchId": { "type": "string", "maxLength": 128 },
+        "hostId": { "type": "string", "maxLength": 128 },
+        "hostName": { "type": "string", "maxLength": 50 },
+        "guestId": { "type": "string", "maxLength": 128 },
+        "guestName": { "type": "string", "maxLength": 50 },
+        "hostScore": { "type": "number" },
+        "guestScore": { "type": "number" },
+        "status": { "type": "string", "maxLength": 20 },
+        "winner": { "type": "string", "maxLength": 128 },
+        "seed": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["matchId", "hostId", "hostName", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/leaderboard/{entryId}": {
+      "schema": { "$ref": "#/entities/LeaderboardEntry" },
+      "description": "Global leaderboard submissions"
+    },
+    "/players/{playerId}": {
+      "schema": { "$ref": "#/entities/PlayerProfile" },
+      "description": "User profiles and cross-device sync state"
+    },
+    "/matches/{matchId}": {
+      "schema": { "$ref": "#/entities/MultiplayerMatch" },
+      "description": "Multiplayer competitive duels"
+    }
+  }
+}

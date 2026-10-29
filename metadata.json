@@ -1,0 +1,6 @@
+{
+  "name": "SYNAPSE: Overdrive - Neural Network Cyber Arcade",
+  "description": "Minimalist neon neural network arcade game featuring dynamic difficulty adjustment, real-time Firebase leaderboards, offline synchronization, multi-language localization, and competitive neural duels.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

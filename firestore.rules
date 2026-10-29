@@ -1,0 +1,66 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    match /test/{docId} {
+      allow read, write: if true;
+    }
+
+    match /leaderboard/{entryId} {
+      allow read: if true;
+      allow create: if isValidId(entryId)
+        && incoming().keys().hasAll(['playerId', 'displayName', 'score', 'epoch', 'accuracy', 'region', 'season', 'timestamp'])
+        && incoming().playerId is string && incoming().playerId.size() <= 128
+        && incoming().displayName is string && incoming().displayName.size() <= 50
+        && incoming().score is number && incoming().score >= 0
+        && incoming().epoch is number && incoming().epoch >= 1
+        && incoming().accuracy is number && incoming().accuracy >= 0 && incoming().accuracy <= 100
+        && incoming().region is string && incoming().region.size() <= 16
+        && incoming().season is string && incoming().season.size() <= 32;
+      allow update: if isValidId(entryId)
+        && incoming().score is number && incoming().score >= existing().score;
+    }
+
+    match /players/{playerId} {
+      allow read: if true;
+      allow create, update: if isValidId(playerId)
+        && incoming().keys().hasAll(['playerId', 'displayName', 'avatar', 'region', 'highScore', 'totalGames', 'ddaRating', 'achievements', 'updatedAt'])
+        && incoming().playerId is string && incoming().playerId.size() <= 128
+        && incoming().displayName is string && incoming().displayName.size() <= 50
+        && incoming().avatar is string && incoming().avatar.size() <= 64
+        && incoming().region is string && incoming().region.size() <= 16
+        && incoming().highScore is number && incoming().highScore >= 0
+        && incoming().totalGames is number && incoming().totalGames >= 0
+        && incoming().ddaRating is number;
+    }
+
+    match /matches/{matchId} {
+      allow read: if true;
+      allow create: if isValidId(matchId)
+        && incoming().keys().hasAll(['matchId', 'hostId', 'hostName', 'status', 'createdAt'])
+        && incoming().matchId is string && incoming().matchId.size() <= 128
+        && incoming().hostId is string && incoming().hostId.size() <= 128
+        && incoming().hostName is string && incoming().hostName.size() <= 50
+        && incoming().status is string && incoming().status.size() <= 20;
+      allow update: if isValidId(matchId)
+        && incoming().status is string;
+    }
+  }
+}
