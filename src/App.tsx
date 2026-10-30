@@ -1,630 +1,592 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import confetti from 'canvas-confetti';
 import {
-  NeuralNode,
-  Synapse,
-  DataPacket,
-  DDAState,
-  createInitialTopology,
-  generatePacket,
-  updateDDA,
-  computeScoreIncrement,
-  calculateLoss
-} from './game/neuralEngine.ts';
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
-  loadLocalPlayerState,
-  saveLocalPlayerState,
-  recordRunStats,
-  flushOfflineQueue,
-  PlayerState,
-  Achievement
-} from './services/storage.ts';
-import { sound } from './services/sound.ts';
-import { translations, SupportedLanguage } from './services/i18n.ts';
-import { testConnection, updateMatchScore, MultiplayerMatchData } from './services/firebase.ts';
+  Activity,
+  ArrowRight,
+  AudioLines,
+  Award,
+  Check,
+  ChevronRight,
+  Cloud,
+  Globe,
+  LoaderCircle,
+  Play,
+  Settings2,
+  ShieldCheck,
+  Sparkles,
+  Trophy,
+  UserRound,
+  Volume2,
+  VolumeX,
+  X,
+} from "lucide-react";
+import { Home } from "./components/Home";
+import { GameView } from "./components/GameView";
+import { Dialog } from "./components/Dialog";
+import { useGame } from "./hooks/useGame";
+import { useCloud } from "./hooks/useCloud";
+import { accuracy, SIGNALS, stepRun } from "./game/simulation";
+import { loadPlayer, PLAYER_EVENT, savePlayer } from "./services/player";
+import { getCopy } from "./services/copy";
+import { loadPreferences, savePreferences } from "./services/preferences";
+import { sound } from "./services/sound";
+import { achievementCopy } from "./services/achievementCopy";
+import type { DuelRoom } from "./services/firebase";
+import type { RunMode } from "./game/simulation";
 
-// Components
-import { TitleScreen } from './components/TitleScreen.tsx';
-import { HUD } from './components/HUD.tsx';
-import { NeuralCanvas } from './components/NeuralCanvas.tsx';
-import { PauseModal } from './components/PauseModal.tsx';
-import { GameOverModal } from './components/GameOverModal.tsx';
-import { LeaderboardModal } from './components/LeaderboardModal.tsx';
-import { AchievementsModal } from './components/AchievementsModal.tsx';
-import { ProfileModal } from './components/ProfileModal.tsx';
-import { MultiplayerModal } from './components/MultiplayerModal.tsx';
-import { LanguageModal } from './components/LanguageModal.tsx';
+const Panels = lazy(() => import("./components/Panels"));
 
-type GameState = 'title' | 'playing' | 'paused' | 'gameover';
+function Brand({ onClick }: { onClick: () => void }) {
+  return (
+    <button className="brand" onClick={onClick} aria-label="Synapse home">
+      <svg viewBox="0 0 38 38" fill="none" aria-hidden="true">
+        <path
+          d="M19 3 33 11v16l-14 8-14-8V11L19 3Z"
+          stroke="currentColor"
+          strokeWidth="1.2"
+        />
+        <path
+          d="m12 23 7-12 7 12H12Z"
+          stroke="currentColor"
+          strokeWidth="1.2"
+        />
+        <circle cx="19" cy="11" r="3" fill="currentColor" />
+        <circle cx="12" cy="23" r="3" fill="currentColor" />
+        <circle cx="26" cy="23" r="3" fill="currentColor" />
+      </svg>
+      <span>
+        SYNAPSE<small>O V E R D R I V E</small>
+      </span>
+    </button>
+  );
+}
 
 export default function App() {
-  const [gameState, setGameState] = useState<GameState>('title');
-  const [playerState, setPlayerState] = useState<PlayerState>(loadLocalPlayerState);
-  const [lang, setLang] = useState<SupportedLanguage>('en');
-
-  // Modals state
-  const [showLeaderboard, setShowLeaderboard] = useState(false);
-  const [showAchievements, setShowAchievements] = useState(false);
-  const [showProfile, setShowProfile] = useState(false);
-  const [showMultiplayer, setShowMultiplayer] = useState(false);
-  const [showLanguage, setShowLanguage] = useState(false);
-
-  // Sound and Haptics state
-  const [soundEnabled, setSoundEnabled] = useState(sound.isSoundEnabled());
-  const [hapticsEnabled, setHapticsEnabled] = useState(sound.isHapticsEnabled());
-
-  // In-Game State
-  const [score, setScore] = useState(0);
-  const [epoch, setEpoch] = useState(1);
-  const [combo, setCombo] = useState(0);
-  const [coreIntegrity, setCoreIntegrity] = useState(100);
-  const [loss, setLoss] = useState(0.12);
-  const [overdriveReady, setOverdriveReady] = useState(false);
-
-  // Neural Graph Entities
-  const [nodes, setNodes] = useState<NeuralNode[]>([]);
-  const [synapses, setSynapses] = useState<Synapse[]>([]);
-  const [packets, setPackets] = useState<DataPacket[]>([]);
-  const [selectedNode, setSelectedNode] = useState<NeuralNode | null>(null);
-
-  // DDA State
-  const [dda, setDDA] = useState<DDAState>({
-    level: 1.0,
-    packetSpeedMultiplier: 1.0,
-    spawnIntervalMs: 2500,
-    adversarialProbability: 0.1,
-    accuracyRate: 100,
-    recentLatencies: [],
-    avgLatencyMs: 600,
-    streak: 0,
-    totalPackets: 0,
-    correctPackets: 0,
-    statusMessage: 'INITIALIZED',
+  const [player, setPlayer] = useState(loadPlayer);
+  const [preferences, setPreferences] = useState(loadPreferences);
+  const [panel, setPanel] = useState("");
+  const [selected, setSelected] = useState(0);
+  const [audio, setAudio] = useState(sound.isSoundEnabled());
+  const [roomId, setRoomId] = useState("");
+  const [room, setRoom] = useState<DuelRoom | null>(null);
+  const [roomError, setRoomError] = useState(false);
+  const [now, setNow] = useState(Date.now());
+  const roomRef = useRef(room);
+  roomRef.current = room;
+  const startedRooms = useRef(new Set<string>());
+  const previousBest = useRef(0);
+  const autoPaused = useRef(false);
+  const cloud = useCloud();
+  const c = getCopy(preferences.language);
+  const game = useGame((run) => {
+    setPanel("");
+    if (run.mode !== "tutorial") void cloud.sync();
   });
-
-  // End of run stats snapshot
-  const [lastRunSnapshot, setLastRunSnapshot] = useState({
-    score: 0,
-    epoch: 1,
-    accuracy: 100,
-    ddaPeak: 1.0,
-  });
-  const [newAchievementsUnlocked, setNewAchievementsUnlocked] = useState<Achievement[]>([]);
-
-  // Competitive Duel State
-  const [duelMode, setDuelMode] = useState<'none' | 'ghost' | 'online'>('none');
-  const [duelTimeLeft, setDuelTimeLeft] = useState(60);
-  const [opponentScore, setOpponentScore] = useState(0);
-  const [activeMatchData, setActiveMatchData] = useState<MultiplayerMatchData | null>(null);
-
-  // Timers and counters
-  const packetIdCounter = useRef(0);
-  const spawnTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const duelTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const lastPacketTimeRef = useRef<number>(Date.now());
-  const epochPacketsCleared = useRef(0);
-  const sessionPacketsCount = useRef(0);
-  const sessionAnomaliesQuarantined = useRef(0);
-  const maxSessionStreak = useRef(0);
-  const peakDDA = useRef(1.0);
-
-  // Sync state to body dataset per game shell standard
-  useEffect(() => {
-    document.body.dataset.state = gameState;
-  }, [gameState]);
-
-  // Test Firebase on boot & check autostart
-  useEffect(() => {
-    testConnection();
-    flushOfflineQueue();
-
-    // Check query param for autostart
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('autostart') === '1') {
-      startNewGame();
+  const run = game.snapshot;
+  const start = useCallback(
+    (mode: RunMode, seed?: number) => {
+      previousBest.current = loadPlayer().highScore;
+      setSelected(0);
+      setPanel("");
+      autoPaused.current = false;
+      if (mode !== "duel") {
+        setRoomId("");
+        setRoom(null);
+      }
+      game.start(mode, seed);
+    },
+    [game.start],
+  );
+  const open = useCallback(
+    (kind: string) => {
+      if (
+        game.runRef.current?.phase === "playing" &&
+        game.runRef.current.mode !== "duel"
+      ) {
+        game.pause();
+        autoPaused.current = true;
+      }
+      setPanel(kind);
+    },
+    [game.pause],
+  );
+  const close = useCallback(() => {
+    setPanel("");
+    setAudio(sound.isSoundEnabled());
+    if (autoPaused.current) {
+      autoPaused.current = false;
+      game.resume();
     }
-  }, []);
-
-  // Initialize or Reset Neural Graph Topology
-  const initGameTopology = () => {
-    const { nodes: initialNodes, synapses: initialSynapses } = createInitialTopology();
-    setNodes(initialNodes);
-    setSynapses(initialSynapses);
-    setPackets([]);
-    epochPacketsCleared.current = 0;
-    sessionPacketsCount.current = 0;
-    sessionAnomaliesQuarantined.current = 0;
-    maxSessionStreak.current = 0;
-    peakDDA.current = 1.0;
+    if (roomRef.current?.status === "waiting") {
+      const id = roomRef.current.id;
+      void import("./services/firebase")
+        .then((service) => service.cancelWaitingRoom(id))
+        .catch(() => {});
+      setRoomId("");
+      setRoom(null);
+    }
+  }, [game.resume]);
+  const home = () => {
+    if (game.runRef.current?.phase === "playing") game.pause();
+    else {
+      game.exit();
+      setRoomId("");
+      setRoom(null);
+      setPanel("");
+    }
   };
 
-  // Start New Game
-  const startNewGame = useCallback(() => {
-    initGameTopology();
-    setScore(0);
-    setEpoch(1);
-    setCombo(0);
-    setCoreIntegrity(100);
-    setLoss(0.12);
-    setOverdriveReady(false);
-    setDDA({
-      level: 1.0,
-      packetSpeedMultiplier: 1.0,
-      spawnIntervalMs: 2500,
-      adversarialProbability: 0.1,
-      accuracyRate: 100,
-      recentLatencies: [600],
-      avgLatencyMs: 600,
-      streak: 0,
-      totalPackets: 0,
-      correctPackets: 0,
-      statusMessage: 'FLOW BALANCED',
-    });
-    setGameState('playing');
-    sound.playTap();
+  useEffect(() => {
+    const update = () => setPlayer(loadPlayer());
+    window.addEventListener(PLAYER_EVENT, update);
+    window.addEventListener("storage", update);
+    const day = setInterval(update, 60000);
+    // Persist schema migration and a stable local identity before the first run.
+    savePlayer(loadPlayer());
+    return () => {
+      window.removeEventListener(PLAYER_EVENT, update);
+      window.removeEventListener("storage", update);
+      clearInterval(day);
+    };
   }, []);
-
-  // Handle Game Over
-  const handleGameOver = useCallback(() => {
-    sound.playError();
-    const finalAccuracy = dda.accuracyRate;
-    setLastRunSnapshot({
-      score,
-      epoch,
-      accuracy: finalAccuracy,
-      ddaPeak: peakDDA.current,
-    });
-
-    // Record stats and check achievements
-    const { state: updatedState, newUnlocks } = recordRunStats(
-      score,
-      epoch,
-      finalAccuracy,
-      sessionPacketsCount.current,
-      sessionAnomaliesQuarantined.current,
-      maxSessionStreak.current,
-      peakDDA.current
-    );
-
-    setPlayerState(updatedState);
-    setNewAchievementsUnlocked(newUnlocks);
-    setGameState('gameover');
-
-    if (activeMatchData) {
-      updateMatchScore(activeMatchData.matchId, true, score, true);
-    }
-  }, [score, epoch, dda.accuracyRate, activeMatchData]);
-
-  // Dynamic Packet Spawner
   useEffect(() => {
-    if (gameState !== 'playing') {
-      if (spawnTimerRef.current) clearInterval(spawnTimerRef.current);
-      return;
-    }
-
-    const spawn = () => {
-      packetIdCounter.current += 1;
-      const newPacket = generatePacket(`pkt_${packetIdCounter.current}`, dda);
-
-      // Find available synapse starting from the packet's startNodeId
-      const candidateSynapses = synapses.filter(s => s.fromNodeId === newPacket.fromNodeId);
-      if (candidateSynapses.length > 0) {
-        // Pick one synapse randomly or weighted
-        const chosen = candidateSynapses[Math.floor(Math.random() * candidateSynapses.length)];
-        newPacket.currentSynapseId = chosen.id;
-        newPacket.toNodeId = chosen.toNodeId;
-        setPackets(prev => [...prev.slice(-15), newPacket]);
-        lastPacketTimeRef.current = Date.now();
+    savePreferences(preferences);
+    document.documentElement.lang = preferences.language;
+    document.documentElement.dataset.motion = preferences.reducedMotion
+      ? "reduced"
+      : "full";
+  }, [preferences]);
+  useEffect(() => {
+    if (run?.id) window.scrollTo({ top: 0, behavior: "instant" });
+  }, [run?.id]);
+  useEffect(() => {
+    document.body.dataset.state = !run
+      ? "title"
+      : run.phase === "finished"
+        ? "gameover"
+        : run.phase;
+    document.documentElement.dataset.skin = player.equippedSkin;
+  }, [run?.phase, player.equippedSkin]);
+  useEffect(() => {
+    const keys = (event: KeyboardEvent) => {
+      if (
+        panel ||
+        (event.target as HTMLElement).closest(
+          'input, textarea, select, [contenteditable="true"]',
+        )
+      )
+        return;
+      if (event.altKey || event.ctrlKey || event.metaKey) return;
+      if (event.code === "Escape" || event.code === "KeyP") {
+        if (game.runRef.current?.phase === "playing") game.pause();
+        else if (game.runRef.current?.phase === "paused") game.resume();
+        return;
       }
-    };
-
-    // First spawn immediately
-    spawn();
-
-    spawnTimerRef.current = setInterval(spawn, dda.spawnIntervalMs);
-
-    return () => {
-      if (spawnTimerRef.current) clearInterval(spawnTimerRef.current);
-    };
-  }, [gameState, dda.spawnIntervalMs, dda.packetSpeedMultiplier, synapses]);
-
-  // Competitive Duel Ghost Loop
-  useEffect(() => {
-    if (gameState !== 'playing' || duelMode === 'none') {
-      if (duelTimerRef.current) clearInterval(duelTimerRef.current);
-      return;
-    }
-
-    setDuelTimeLeft(60);
-    setOpponentScore(0);
-
-    duelTimerRef.current = setInterval(() => {
-      setDuelTimeLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(duelTimerRef.current!);
-          handleGameOver();
-          return 0;
-        }
-        return prev - 1;
-      });
-
-      // Ghost AI incrementally scores points scaled with player MMR
-      const ghostStep = Math.round(150 + Math.random() * 220);
-      setOpponentScore(prev => prev + ghostStep);
-    }, 1000);
-
-    return () => {
-      if (duelTimerRef.current) clearInterval(duelTimerRef.current);
-    };
-  }, [gameState, duelMode, handleGameOver]);
-
-  // Packet Arrival Handler (Classification & Quarantine evaluation)
-  const handlePacketArrived = useCallback(
-    (packet: DataPacket, arrivedNode: NeuralNode) => {
-      // Remove arrived packet from transit
-      setPackets(prev => prev.filter(p => p.id !== packet.id));
-
-      // If arrived at Hidden Node: forward onto next layer synapse if available
-      if (arrivedNode.layer === 'hidden') {
-        sound.playActivation(nodes.findIndex(n => n.id === arrivedNode.id));
-        const nextSynapses = synapses.filter(s => s.fromNodeId === arrivedNode.id);
-        if (nextSynapses.length > 0) {
-          const nextChosen = nextSynapses[Math.floor(Math.random() * nextSynapses.length)];
-          const forwarded: DataPacket = {
-            ...packet,
-            id: `${packet.id}_fwd`,
-            progress: 0,
-            currentSynapseId: nextChosen.id,
-            fromNodeId: arrivedNode.id,
-            toNodeId: nextChosen.toNodeId,
-          };
-          setPackets(prev => [...prev, forwarded]);
+      if (event.code === "KeyM") {
+        setAudio(sound.toggleSound());
+        return;
+      }
+      if (!run || run.phase === "finished") {
+        if (
+          (event.code === "Space" || event.code === "Enter") &&
+          event.target === document.body
+        ) {
+          event.preventDefault();
+          start("adaptive");
         }
         return;
       }
-
-      // If arrived at Output Node:
-      if (arrivedNode.layer === 'output') {
-        const latency = Date.now() - lastPacketTimeRef.current;
-        sessionPacketsCount.current += 1;
-
-        if (arrivedNode.isQuarantine) {
-          // Quarantine node evaluation
-          if (packet.isAdversarial) {
-            // Success! Adversarial payload neutralized
-            sessionAnomaliesQuarantined.current += 1;
-            sound.playQuarantine();
-            const points = computeScoreIncrement(300, combo, dda.level, dda.accuracyRate);
-            setScore(s => s + points);
-            setCoreIntegrity(hp => Math.min(100, hp + 6));
-            const newStreak = combo + 1;
-            setCombo(newStreak);
-            if (newStreak > maxSessionStreak.current) maxSessionStreak.current = newStreak;
-            if (newStreak >= 4) setOverdriveReady(true);
-
-            // Update DDA
-            setDDA(d => {
-              const updated = updateDDA(d, { correct: true, latencyMs: latency, isAdversarialHit: true });
-              if (updated.level > peakDDA.current) peakDDA.current = updated.level;
-              return updated;
-            });
-          } else {
-            // Misrouted clean packet to quarantine
-            sound.playError();
-            setCombo(0);
-            setCoreIntegrity(hp => Math.max(0, hp - 5));
-            setDDA(d => updateDDA(d, { correct: false, latencyMs: latency, isAdversarialHit: false }));
-          }
-        } else {
-          // Regular output classification node (out_0 -> Alpha, out_1 -> Beta, out_2 -> Gamma)
-          const targetIndex = packet.targetClass;
-          const arrivedIndex = arrivedNode.id === 'out_0' ? 0 : arrivedNode.id === 'out_1' ? 1 : 2;
-
-          if (packet.isAdversarial) {
-            // Adversarial attack breached output layer!
-            sound.playError();
-            setCombo(0);
-            setLoss(l => Number((l + 0.08).toFixed(3)));
-            const newHp = Math.max(0, coreIntegrity - 14);
-            setCoreIntegrity(newHp);
-            setDDA(d => updateDDA(d, { correct: false, latencyMs: latency, isAdversarialHit: true }));
-
-            if (newHp <= 0) {
-              handleGameOver();
-              return;
-            }
-          } else if (arrivedIndex === targetIndex) {
-            // Correct classification!
-            sound.playSuccess(combo);
-            const points = computeScoreIncrement(150, combo, dda.level, dda.accuracyRate);
-            setScore(s => s + points);
-            setCoreIntegrity(hp => Math.min(100, hp + 2));
-            setLoss(l => Number(Math.max(0.01, l - 0.02).toFixed(3)));
-
-            const newStreak = combo + 1;
-            setCombo(newStreak);
-            if (newStreak > maxSessionStreak.current) maxSessionStreak.current = newStreak;
-            if (newStreak >= 4) setOverdriveReady(true);
-
-            // Update DDA
-            setDDA(d => {
-              const updated = updateDDA(d, { correct: true, latencyMs: latency, isAdversarialHit: false });
-              if (updated.level > peakDDA.current) peakDDA.current = updated.level;
-              return updated;
-            });
-
-            // Epoch Progress
-            epochPacketsCleared.current += 1;
-            if (epochPacketsCleared.current >= 15) {
-              epochPacketsCleared.current = 0;
-              setEpoch(ep => ep + 1);
-              sound.playEpochAdvance();
-              setCoreIntegrity(hp => Math.min(100, hp + 20));
-              confetti({
-                particleCount: 50,
-                spread: 60,
-                origin: { y: 0.7 },
-                colors: ['#00f0ff', '#ff007f', '#00ff9d'],
-              });
-            }
-          } else {
-            // Classification mismatch
-            sound.playError();
-            setCombo(0);
-            setLoss(l => Number((l + 0.04).toFixed(3)));
-            const newHp = Math.max(0, coreIntegrity - 8);
-            setCoreIntegrity(newHp);
-            setDDA(d => updateDDA(d, { correct: false, latencyMs: latency, isAdversarialHit: false }));
-
-            if (newHp <= 0) {
-              handleGameOver();
-              return;
-            }
-          }
-        }
+      if (run.phase !== "playing") return;
+      if (/^[1-4]$/.test(event.key)) {
+        event.preventDefault();
+        setSelected(Number(event.key) - 1);
       }
-    },
-    [combo, coreIntegrity, dda, handleGameOver, nodes, synapses]
-  );
-
-  // Tactile Synapse Weight Adjustment
-  const handleWeightAdjusted = (synapseId: string, nextWeight: number) => {
-    setSynapses(prev =>
-      prev.map(s => (s.id === synapseId ? { ...s, weight: nextWeight } : s))
-    );
-  };
-
-  // Tactile Axon Creation
-  const handleSynapseCreated = (fromId: string, toId: string) => {
-    const existing = synapses.find(s => s.fromNodeId === fromId && s.toNodeId === toId);
-    if (!existing) {
-      const newSyn: Synapse = {
-        id: `syn_${fromId}_${toId}_${Date.now()}`,
-        fromNodeId: fromId,
-        toNodeId: toId,
-        weight: 1.0,
-        activeCharge: 0,
-      };
-      setSynapses(prev => [...prev, newSyn]);
-    }
-  };
-
-  // Tactical Controls
-  const handlePruneSynapses = () => {
-    sound.playTap();
-    sound.triggerHaptic('medium');
-    setSynapses(prev => prev.filter(s => Math.abs(s.weight) >= 0.4));
-  };
-
-  const handleInvertGradients = () => {
-    sound.playTap();
-    sound.triggerHaptic('medium');
-    setSynapses(prev => prev.map(s => ({ ...s, weight: Number((-s.weight).toFixed(1)) })));
-  };
-
-  const handleTriggerOverdrive = () => {
-    if (!overdriveReady) return;
-    sound.playEpochAdvance();
-    sound.triggerHaptic('combo');
-    setOverdriveReady(false);
-    // Purge all adversarial packets on screen
-    setPackets(prev => prev.filter(p => !p.isAdversarial));
-    // Boost points
-    setScore(s => s + 500);
-    setCoreIntegrity(100);
-    confetti({
-      particleCount: 80,
-      spread: 80,
-      origin: { y: 0.5 },
-      colors: ['#a855f7', '#ff007f', '#00f0ff'],
-    });
-  };
-
-  // Start Duel Mode
-  const handleStartDuel = (mode: 'online' | 'ghost', matchData?: MultiplayerMatchData) => {
-    setDuelMode(mode);
-    if (matchData) setActiveMatchData(matchData);
-    setShowMultiplayer(false);
-    startNewGame();
-  };
-
-  // Keyboard Shortcuts Listener
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-
-      if (e.code === 'Space' || e.code === 'Enter') {
-        if (gameState === 'title' || gameState === 'gameover') {
-          e.preventDefault();
-          startNewGame();
-        }
-      } else if (e.code === 'Escape' || e.code === 'KeyP') {
-        if (gameState === 'playing') {
-          setGameState('paused');
-        } else if (gameState === 'paused') {
-          setGameState('playing');
-        }
-      } else if (e.code === 'KeyM') {
-        const next = sound.toggleSound();
-        setSoundEnabled(next);
-      } else if (e.code === 'KeyF') {
-        handleTriggerOverdrive();
+      const gate = ["KeyA", "KeyB", "KeyC", "KeyQ"].indexOf(event.code);
+      if (gate >= 0) {
+        event.preventDefault();
+        game.route(selected, SIGNALS[gate]);
+      }
+      if (event.code === "KeyF") {
+        event.preventDefault();
+        game.focus();
       }
     };
+    window.addEventListener("keydown", keys);
+    return () => window.removeEventListener("keydown", keys);
+  }, [
+    panel,
+    run?.phase,
+    selected,
+    start,
+    game.pause,
+    game.resume,
+    game.route,
+    game.focus,
+  ]);
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [gameState, startNewGame, overdriveReady]);
+  useEffect(() => {
+    if (!roomId) return;
+    let alive = true;
+    let unsubscribe: (() => void) | undefined;
+    setRoomError(false);
+    import("./services/firebase")
+      .then((service) => {
+        if (alive)
+          unsubscribe = service.watchRoom(
+            roomId,
+            (value) => {
+              if (alive) setRoom(value);
+            },
+            () => {
+              if (alive) setRoomError(true);
+            },
+          );
+      })
+      .catch(() => {
+        if (alive) setRoomError(true);
+      });
+    return () => {
+      alive = false;
+      unsubscribe?.();
+    };
+  }, [roomId]);
+  useEffect(() => {
+    if (!roomId) return;
+    const timer = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(timer);
+  }, [roomId]);
+  useEffect(() => {
+    if (
+      !room ||
+      room.status !== "active" ||
+      !room.startAt ||
+      startedRooms.current.has(room.id)
+    )
+      return;
+    const delay = Math.max(0, room.startAt - Date.now());
+    const timer = setTimeout(() => {
+      startedRooms.current.add(room.id);
+      start("duel", room.seed);
+      if (game.runRef.current)
+        stepRun(
+          game.runRef.current,
+          Math.max(0, (Date.now() - room.startAt!) / 1000),
+        );
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [room?.id, room?.status, room?.startAt, start]);
+  useEffect(() => {
+    if (!roomId || !cloud.user) return;
+    let lastScore = -1;
+    let sentFinal = false;
+    let sendina = false;
+    const send = async () => {
+      const active = game.runRef.current;
+      const currentRoom = roomRef.current;
+      if (!currentRoom || active?.mode !== "duel" || sendina || !cloud.online)
+        return;
+      const done = active.phase === "finished";
+      if (lastScore === active.score && (!done || sentFinal)) return;
+      sendina = true;
+      try {
+        await (
+          await import("./services/firebase")
+        ).sendDuelScore(currentRoom, active.score, done);
+        lastScore = active.score;
+        sentFinal = done;
+      } catch {
+        setRoomError(true);
+      } finally {
+        sendina = false;
+      }
+    };
+    const timer = setInterval(() => void send(), 1000);
+    return () => clearInterval(timer);
+  }, [roomId, cloud.user, cloud.online]);
 
+  const isHost = room?.hostId === cloud.user?.uid;
+  const opponent = room
+    ? {
+        name: (isHost ? room.guestName : room.hostName) || c.opponent,
+        score: isHost ? room.guestScore : room.hostScore,
+      }
+    : undefined;
+  const bothDone = room?.hostDone && room?.guestDone;
+  const ownScore = isHost ? room?.hostScore : room?.guestScore;
+  const roomStatus = roomError
+    ? c.roomError
+    : room?.startAt
+      ? `${Math.max(0, Math.ceil((room.startAt - now) / 1000))}…`
+      : c.waiting;
   return (
-    <main className="relative w-screen h-screen bg-[#050811] text-slate-100 flex flex-col overflow-hidden cyber-grid">
-      {/* Title Screen View */}
-      {gameState === 'title' && (
-        <TitleScreen
-          onStart={startNewGame}
-          playerState={playerState}
-          lang={lang}
-          onOpenLeaderboard={() => setShowLeaderboard(true)}
-          onOpenAchievements={() => setShowAchievements(true)}
-          onOpenProfile={() => setShowProfile(true)}
-          onOpenMultiplayer={() => setShowMultiplayer(true)}
-          onOpenLanguage={() => setShowLanguage(true)}
-        />
-      )}
-
-      {/* Active Game Layout */}
-      {(gameState === 'playing' || gameState === 'paused' || gameState === 'gameover') && (
-        <>
-          <HUD
-            score={score}
-            epoch={epoch}
-            combo={combo}
-            coreIntegrity={coreIntegrity}
-            dda={dda}
-            loss={loss}
-            soundEnabled={soundEnabled}
-            hapticsEnabled={hapticsEnabled}
-            lang={lang}
-            onToggleSound={() => setSoundEnabled(sound.toggleSound())}
-            onToggleHaptics={() => setHapticsEnabled(sound.toggleHaptics())}
-            onOpenLanguage={() => setShowLanguage(true)}
-            onOpenLeaderboard={() => setShowLeaderboard(true)}
-            onOpenAchievements={() => setShowAchievements(true)}
-            onOpenProfile={() => setShowProfile(true)}
-            onOpenMultiplayer={() => setShowMultiplayer(true)}
-            onPause={() => setGameState('paused')}
-            onPruneSynapses={handlePruneSynapses}
-            onInvertGradients={handleInvertGradients}
-            onTriggerOverdrive={handleTriggerOverdrive}
-            overdriveReady={overdriveReady}
+    <div className={`app-shell ${run ? "in-game" : ""}`}>
+      <a className="skip-link" href="#main-content">
+        {c.play}
+      </a>
+      <header className="site-header">
+        <Brand onClick={home} />
+        <nav className="main-navigation" aria-label="Synapse">
+          <button className={!panel ? "active" : ""} onClick={home}>
+            {c.play}
+          </button>
+          <button
+            className={panel === "rankings" ? "active" : ""}
+            onClick={() => open("rankings")}
+          >
+            {c.rankings}
+          </button>
+          <button
+            className={panel === "collection" ? "active" : ""}
+            onClick={() => open("collection")}
+          >
+            {c.collection}
+          </button>
+        </nav>
+        <div className="header-actions">
+          <span
+            className={`connection-status ${!cloud.online ? "is-offline" : ""}`}
+          >
+            <span className="status-dot" />
+            {!cloud.online
+              ? c.offline
+              : cloud.status === "connected"
+                ? c.connected
+                : c.local}
+          </span>
+          <button
+            className="icon-button sound-control"
+            aria-label={c.sound}
+            aria-pressed={audio}
+            onClick={() => setAudio(sound.toggleSound())}
+          >
+            {audio ? <Volume2 size={17} /> : <VolumeX size={17} />}
+          </button>
+          <button
+            className="icon-button"
+            aria-label={c.settings}
+            onClick={() => open("settings")}
+          >
+            <Settings2 size={18} />
+          </button>
+          <button
+            className="avatar-button"
+            aria-label={c.profile}
+            onClick={() => open("profile")}
+          >
+            {player.displayName.slice(0, 1).toUpperCase()}
+          </button>
+        </div>
+      </header>
+      <main id="main-content">
+        {run ? (
+          <GameView
+            run={run}
+            runRef={game.runRef}
+            selected={selected}
+            setSelected={setSelected}
+            route={game.route}
+            focus={game.focus}
+            pause={game.pause}
+            reducedMotion={preferences.reducedMotion}
+            copy={c}
+            locale={preferences.language}
+            opponent={run.mode === "duel" ? opponent : undefined}
           />
-
-          {/* Duel Header if in Multiplayer Match */}
-          {duelMode !== 'none' && (
-            <div className="w-full bg-[#180a2b] border-b border-fuchsia-500/30 px-4 py-1.5 flex items-center justify-between text-xs font-mono text-fuchsia-300 z-20">
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-cyan-300">{playerState.displayName}: {score.toLocaleString()}</span>
-                <span>VS</span>
-                <span className="font-bold text-red-400">OPPONENT: {opponentScore.toLocaleString()}</span>
+        ) : (
+          <Home
+            player={player}
+            copy={c}
+            start={start}
+            open={open}
+            checkpoint={game.checkpoint}
+            resume={game.resumeCheckpoint}
+            locale={preferences.language}
+          />
+        )}
+      </main>
+      {!run && (
+        <footer className="site-footer">
+          <span>
+            <span className="footer-mark">✳</span>
+            {c.footer}
+          </span>
+          <div>
+            <span className="offline-label">
+              <ShieldCheck size={13} />
+              {c.local}
+            </span>
+            <button className="text-button" onClick={() => open("settings")}>
+              <Globe size={13} />
+              {preferences.language.toUpperCase()}
+            </button>
+            <span className="mono small">V.02</span>
+          </div>
+        </footer>
+      )}
+      {run?.phase === "paused" && !panel && (
+        <Dialog
+          title={c.paused}
+          eyebrow={c.adaptive}
+          onClose={game.resume}
+          closeLabel={c.close}
+        >
+          <div className="pause-content">
+            <div className="pause-orbit">
+              <AudioLines size={30} />
+            </div>
+            <p>{c.pauseDescription}</p>
+            <button className="button button-primary" onClick={game.resume}>
+              <Play size={16} fill="currentColor" />
+              {c.resume}
+              <ArrowRight size={16} />
+            </button>
+            <button
+              className="button button-secondary"
+              onClick={() => start(run.mode)}
+            >
+              {c.restart}
+            </button>
+            <button className="text-button" onClick={game.exit}>
+              {c.menu}
+            </button>
+          </div>
+        </Dialog>
+      )}
+      {run?.phase === "finished" && !panel && (
+        <Dialog
+          title={
+            run.mode === "tutorial"
+              ? c.tutorialDone
+              : run.mode === "duel" && bothDone
+                ? ownScore === opponent?.score
+                  ? c.tie
+                  : (ownScore || 0) > (opponent?.score || 0)
+                    ? c.won
+                    : c.lost
+                : c.finished
+          }
+          eyebrow={run.mode === "tutorial" ? c.learn : c[run.mode]}
+          onClose={game.exit}
+          closeLabel={c.close}
+        >
+          <div className="results-content">
+            <div className="result-emblem">
+              {run.mode === "tutorial" ? (
+                <Check size={30} />
+              ) : (
+                <Activity size={30} />
+              )}
+            </div>
+            <p>
+              {run.mode === "tutorial"
+                ? c.tutorialDoneDescription
+                : run.finishReason === "time"
+                  ? c.timeFinished
+                  : c.integrityFinished}
+            </p>
+            <div className="result-score">
+              <span>{c.score}</span>
+              <strong>{run.score.toLocaleString(preferences.language)}</strong>
+              {run.mode === "adaptive" && run.score > previousBest.current && (
+                <small>
+                  <Sparkles size={12} />
+                  {c.newBest}
+                </small>
+              )}
+            </div>
+            <div className="result-metrics">
+              <div>
+                <span>{c.correct}</span>
+                <strong>{run.correct}</strong>
               </div>
-              <div className="flex items-center gap-2">
-                <span>TIME REMAINING:</span>
-                <span className="text-base font-display font-bold text-amber-400 tabular-nums">
-                  {duelTimeLeft}s
-                </span>
+              <div>
+                <span>{c.accuracy}</span>
+                <strong>{accuracy(run)}%</strong>
+              </div>
+              <div>
+                <span>{c.peakStreak}</span>
+                <strong>{run.maxStreak}</strong>
               </div>
             </div>
-          )}
-
-          {/* Main 60fps Interactive Neural Viewport */}
-          <div className="flex-1 relative w-full h-full overflow-hidden">
-            <NeuralCanvas
-              nodes={nodes}
-              synapses={synapses}
-              packets={packets}
-              dda={dda}
-              onPacketArrived={handlePacketArrived}
-              onWeightAdjusted={handleWeightAdjusted}
-              onSynapseCreated={handleSynapseCreated}
-              onNodeSelected={setSelectedNode}
-              isPaused={gameState !== 'playing'}
-            />
-
-            {/* Critical Low Integrity screen pulse overlay */}
-            {coreIntegrity <= 25 && (
-              <div className="absolute inset-0 border-4 border-red-500/60 pointer-events-none animate-pulse" />
+            {run.mode === "duel" && (
+              <p className="notice">
+                {bothDone
+                  ? `${c.opponent}: ${opponent?.score.toLocaleString(preferences.language)}`
+                  : roomError
+                    ? c.syncError
+                    : c.waitingResult}
+              </p>
             )}
+            {game.unlocks.length > 0 && (
+              <div className="unlock-notice">
+                <Award size={22} />
+                <div>
+                  <span>{c.unlocked}</span>
+                  <strong>
+                    {game.unlocks
+                      .map((a) => achievementCopy(preferences.language, a).name)
+                      .join(" · ")}
+                  </strong>
+                </div>
+              </div>
+            )}
+            {game.saveFailed && (
+              <p className="notice notice-error">{c.saveError}</p>
+            )}
+            <button
+              className="button button-primary"
+              onClick={() =>
+                start(
+                  run.mode === "tutorial" || run.mode === "duel"
+                    ? "adaptive"
+                    : run.mode,
+                )
+              }
+            >
+              <Play size={16} />
+              {run.mode === "tutorial" ? c.start : c.again}
+              <ArrowRight size={16} />
+            </button>
+            <button className="text-button" onClick={game.exit}>
+              {c.menu}
+            </button>
           </div>
-        </>
+        </Dialog>
       )}
-
-      {/* Status Modals */}
-      {gameState === 'paused' && (
-        <PauseModal
-          onResume={() => setGameState('playing')}
-          onRestart={startNewGame}
-          onMainMenu={() => setGameState('title')}
-          lang={lang}
-        />
+      {panel && (
+        <Suspense
+          fallback={
+            <div className="loading-overlay">
+              <LoaderCircle className="spin" aria-label={c.loading} />
+            </div>
+          }
+        >
+          <Panels
+            panel={panel}
+            close={close}
+            copy={c}
+            player={player}
+            preferences={preferences}
+            setPreferences={setPreferences}
+            cloud={cloud}
+            open={open}
+            roomId={roomId}
+            setRoomId={setRoomId}
+            roomStatus={roomStatus}
+          />
+        </Suspense>
       )}
-
-      {gameState === 'gameover' && (
-        <GameOverModal
-          score={lastRunSnapshot.score}
-          bestScore={playerState.highScore}
-          epoch={lastRunSnapshot.epoch}
-          accuracy={lastRunSnapshot.accuracy}
-          ddaPeak={lastRunSnapshot.ddaPeak}
-          newUnlocks={newAchievementsUnlocked}
-          onRestart={startNewGame}
-          onLeaderboard={() => setShowLeaderboard(true)}
-          onMainMenu={() => setGameState('title')}
-          lang={lang}
-        />
-      )}
-
-      {/* Feature Modals */}
-      {showLeaderboard && (
-        <LeaderboardModal
-          onClose={() => setShowLeaderboard(false)}
-          playerState={playerState}
-          lang={lang}
-        />
-      )}
-
-      {showAchievements && (
-        <AchievementsModal
-          onClose={() => setShowAchievements(false)}
-          playerState={playerState}
-          lang={lang}
-        />
-      )}
-
-      {showProfile && (
-        <ProfileModal
-          onClose={() => setShowProfile(false)}
-          playerState={playerState}
-          onUpdateState={setPlayerState}
-          lang={lang}
-        />
-      )}
-
-      {showMultiplayer && (
-        <MultiplayerModal
-          onClose={() => setShowMultiplayer(false)}
-          playerState={playerState}
-          onStartDuel={handleStartDuel}
-          lang={lang}
-        />
-      )}
-
-      {showLanguage && (
-        <LanguageModal
-          onClose={() => setShowLanguage(false)}
-          currentLang={lang}
-          onSelectLang={setLang}
-        />
-      )}
-    </main>
+      <div className="sr-only" role="status" aria-live="polite">
+        {run?.phase === "finished"
+          ? `${c.finished} ${c.score}: ${run.score}`
+          : ""}
+      </div>
+    </div>
   );
 }

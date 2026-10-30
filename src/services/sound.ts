@@ -11,10 +11,14 @@ class SoundAndHapticEngine {
   constructor() {
     // Lazily create AudioContext on first user interaction
     if (typeof window !== 'undefined') {
-      const savedSound = localStorage.getItem('synapse_sound_enabled');
+      let savedSound: string | null = null;
+      let savedHaptics: string | null = null;
+      try {
+        savedSound = localStorage.getItem('synapse_sound_enabled');
+        savedHaptics = localStorage.getItem('synapse_haptics_enabled');
+      } catch { /* Feedback still works when device storage is disabled. */ }
       if (savedSound !== null) this.soundEnabled = savedSound === 'true';
 
-      const savedHaptics = localStorage.getItem('synapse_haptics_enabled');
       if (savedHaptics !== null) this.hapticsEnabled = savedHaptics === 'true';
     }
   }
@@ -33,7 +37,7 @@ class SoundAndHapticEngine {
 
   public toggleSound(): boolean {
     this.soundEnabled = !this.soundEnabled;
-    localStorage.setItem('synapse_sound_enabled', String(this.soundEnabled));
+    try { localStorage.setItem('synapse_sound_enabled', String(this.soundEnabled)); } catch { /* Session preference. */ }
     return this.soundEnabled;
   }
 
@@ -43,7 +47,7 @@ class SoundAndHapticEngine {
 
   public toggleHaptics(): boolean {
     this.hapticsEnabled = !this.hapticsEnabled;
-    localStorage.setItem('synapse_haptics_enabled', String(this.hapticsEnabled));
+    try { localStorage.setItem('synapse_haptics_enabled', String(this.hapticsEnabled)); } catch { /* Session preference. */ }
     if (this.hapticsEnabled) {
       this.triggerHaptic('medium');
     }
@@ -133,6 +137,7 @@ class SoundAndHapticEngine {
 
   // Sound: Neuron Activated (Harmonic chime)
   public playActivation(layerIndex: number = 0) {
+    this.triggerHaptic('activation');
     if (!this.soundEnabled) return;
     this.initContext();
     if (!this.ctx) return;
@@ -156,11 +161,11 @@ class SoundAndHapticEngine {
 
     osc.start(now);
     osc.stop(now + 0.15);
-    this.triggerHaptic('activation');
   }
 
   // Sound: Correct Classification / Success Score
   public playSuccess(streak: number = 0) {
+    this.triggerHaptic(streak >= 3 ? 'combo' : 'medium');
     if (!this.soundEnabled) return;
     this.initContext();
     if (!this.ctx) return;
@@ -186,15 +191,11 @@ class SoundAndHapticEngine {
       osc.stop(startT + 0.16);
     });
 
-    if (streak >= 3) {
-      this.triggerHaptic('combo');
-    } else {
-      this.triggerHaptic('medium');
-    }
   }
 
   // Sound: Adversarial Quarantine / Absorbed
   public playQuarantine() {
+    this.triggerHaptic('heavy');
     if (!this.soundEnabled) return;
     this.initContext();
     if (!this.ctx) return;
@@ -215,11 +216,11 @@ class SoundAndHapticEngine {
 
     osc.start(now);
     osc.stop(now + 0.2);
-    this.triggerHaptic('heavy');
   }
 
   // Sound: Misclassification / Core Damage Glitch
   public playError() {
+    this.triggerHaptic('error');
     if (!this.soundEnabled) return;
     this.initContext();
     if (!this.ctx) return;
@@ -240,11 +241,11 @@ class SoundAndHapticEngine {
 
     osc.start(now);
     osc.stop(now + 0.22);
-    this.triggerHaptic('error');
   }
 
   // Sound: Epoch Completed (Fanfare)
   public playEpochAdvance() {
+    this.triggerHaptic('combo');
     if (!this.soundEnabled) return;
     this.initContext();
     if (!this.ctx) return;
@@ -269,7 +270,6 @@ class SoundAndHapticEngine {
       osc.stop(t + 0.25);
     });
 
-    this.triggerHaptic('combo');
   }
 }
 

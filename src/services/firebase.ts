@@ -1,257 +1,363 @@
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { getApp, getApps, initializeApp } from "firebase/app";
 import {
-  getFirestore,
-  doc,
+  getAuth,
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  signInWithPopup,
+  connectAuthEmulator,
+} from "firebase/auth";
+import {
   collection,
-  getDocs,
-  setDoc,
-  updateDoc,
+  doc,
+  getDoc,
+  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   onSnapshot,
-  query,
   orderBy,
+  query,
+  where,
   limit,
-  getDocFromServer
-} from 'firebase/firestore';
-import firebaseConfig from '../../firebase-applet-config.json';
+  runTransaction,
+  updateDoc,
+  getCountFromServer,
+  connectFirestoreEmulator,
+  deleteDoc,
+} from "firebase/firestore";
+import type { User } from "firebase/auth";
+import config from "../../firebase-applet-config.json";
+import {
+  applyRunToPlayer,
+  currentSeason,
+  loadCheckpoint,
+  loadPlayer,
+  normalizePlayerState,
+  saveCheckpoint,
+  savePlayer,
+} from "./player";
+import type { PlayerState, RunRecord } from "./player";
+import { isRunCheckpoint } from "../game/simulation";
 
-// Initialize Firebase
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+const emulated = import.meta.env.VITE_USE_EMULATORS === "true";
+const existingApp = getApps().length ? getApp() : null;
+const app =
+  existingApp ??
+  initializeApp(emulated ? { ...config, projectId: "demo-synapse" } : config);
 export const auth = getAuth(app);
-export const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
-
-// Error Handling Requirements from firebase-integration-rpc
-export enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
+const databaseId = emulated ? "(default)" : config.firestoreDatabaseId;
+export const db = existingApp
+  ? getFirestore(app, databaseId)
+  : initializeFirestore(
+      app,
+      {
+        localCache: persistentLocalCache({
+          tabManager: persistentMultipleTabManager(),
+        }),
+      },
+      databaseId,
+    );
+if (emulated && !existingApp) {
+  connectAuthEmulator(auth, "http://127.0.0.1:9098", { disableWarnings: true });
+  connectFirestoreEmulator(db, "127.0.0.1", 8088);
+}
+export const observeAccount = (callback: (user: User | null) => void) =>
+  onAuthStateChanged(auth, callback);
+export async function connectAccount() {
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: "select_account" });
+  return (await signInWithPopup(auth, provider)).user;
 }
 
-export interface FirestoreErrorInfo {
-  error: string;
-  operationType: OperationType;
-  path: string | null;
-  authInfo: {
-    userId?: string | null;
-    email?: string | null;
-    emailVerified?: boolean | null;
-    isAnonymous?: boolean | null;
-    tenantId?: string | null;
-    providerInfo?: {
-      providerId?: string | null;
-      email?: string | null;
-    }[];
-  };
-}
-
-export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth.currentUser?.uid || null,
-      email: auth.currentUser?.email || null,
-      emailVerified: auth.currentUser?.emailVerified || null,
-      isAnonymous: auth.currentUser?.isAnonymous || null,
-      tenantId: auth.currentUser?.tenantId || null,
-      providerInfo: auth.currentUser?.providerData?.map(provider => ({
-        providerId: provider.providerId,
-        email: provider.email,
-      })) || []
-    },
-    operationType,
-    path
-  };
-  console.warn('Firestore Error Log: ', JSON.stringify(errInfo));
-  return errInfo;
-}
-
-// Test connection on boot per skill requirement
-export async function testConnection(): Promise<boolean> {
-  try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
-    return true;
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.warn('Firebase client is offline, working in offline-first mode.');
-    }
-    return false;
-  }
-}
-
-// Types
-export interface LeaderboardEntry {
-  id?: string;
-  playerId: string;
+export interface ScoreEntry {
+  uid: string;
   displayName: string;
+  region: string;
   score: number;
-  epoch: number;
   accuracy: number;
-  region: string;
+  wave: number;
+  mode: "adaptive" | "daily" | "sprint";
   season: string;
-  timestamp: string;
+  completedAt: string;
+}
+export function boardSeason(mode: string): string {
+  return mode === "daily"
+    ? new Date().toISOString().slice(0, 10)
+    : currentSeason();
+}
+function scoreId(uid: string, mode: string, season: string) {
+  return `${uid}_${mode}_${season}`;
+}
+export function subscribeBoard(
+  mode: string,
+  region: string,
+  update: (entries: ScoreEntry[], cached: boolean) => void,
+  error: (error: unknown) => void,
+) {
+  const filters = [
+    where("mode", "==", mode),
+    where("season", "==", boardSeason(mode)),
+  ];
+  if (region !== "GLOBAL") filters.push(where("region", "==", region));
+  return onSnapshot(
+    query(
+      collection(db, "scores"),
+      ...filters,
+      orderBy("score", "desc"),
+      limit(50),
+    ),
+    { includeMetadataChanges: true },
+    (snap) =>
+      update(
+        snap.docs.map((d) => d.data() as ScoreEntry),
+        snap.metadata.fromCache,
+      ),
+    error,
+  );
+}
+export async function getPersonalRank(
+  uid: string,
+  mode: string,
+  region: string,
+): Promise<{ entry: ScoreEntry; rank: number } | null> {
+  const snapshot = await getDoc(
+    doc(db, "scores", scoreId(uid, mode, boardSeason(mode))),
+  );
+  if (!snapshot.exists()) return null;
+  const entry = snapshot.data() as ScoreEntry;
+  if (region !== "GLOBAL" && entry.region !== region) return null;
+  const filters = [
+    where("mode", "==", mode),
+    where("season", "==", boardSeason(mode)),
+    where("score", ">", entry.score),
+  ];
+  if (region !== "GLOBAL") filters.push(where("region", "==", region));
+  const higher = await getCountFromServer(
+    query(collection(db, "scores"), ...filters),
+  );
+  return { entry, rank: higher.data().count + 1 };
 }
 
-export interface PlayerProfileData {
-  playerId: string;
-  displayName: string;
-  avatar: string;
-  region: string;
-  highScore: number;
-  totalGames: number;
-  ddaRating: number;
-  achievements: string;
-  updatedAt: string;
+let syncing: Promise<void> | null = null;
+async function performSync(): Promise<void> {
+  const user = auth.currentUser;
+  if (!user) throw new Error("Account required");
+  const uid = user.uid;
+  const localAtStart = loadPlayer();
+  const profileRef = doc(db, "players_v2", uid);
+  // Create a profile from existing local career data once, preserving migrated progress.
+  await runTransaction(db, async (transaction) => {
+    const snapshot = await transaction.get(profileRef);
+    if (!snapshot.exists()) {
+      const state = { ...localAtStart, playerId: uid, pendingSyncQueue: [] };
+      transaction.set(profileRef, {
+        state,
+        importedRuns: localAtStart.pendingSyncQueue.map((run) => run.id),
+        checkpoint: loadCheckpoint(),
+        updatedAt: new Date().toISOString(),
+      });
+    }
+  });
+  for (const record of localAtStart.pendingSyncQueue) {
+    if (auth.currentUser?.uid !== uid) throw new Error("Account changed");
+    const ledgerRef = doc(db, "players_v2", uid, "runs", record.id);
+    const publish = ["adaptive", "daily", "sprint"].includes(record.mode);
+    const season =
+      record.mode === "daily"
+        ? record.startedAt.slice(0, 10)
+        : `${new Date(record.completedAt).getUTCFullYear()}-Q${1 + Math.floor(new Date(record.completedAt).getUTCMonth() / 3)}`;
+    const scoreRef = doc(db, "scores", scoreId(uid, record.mode, season));
+    await runTransaction(db, async (transaction) => {
+      const [profile, ledger, score] = await Promise.all([
+        transaction.get(profileRef),
+        transaction.get(ledgerRef),
+        publish ? transaction.get(scoreRef) : Promise.resolve(null),
+      ]);
+      if (ledger.exists()) return;
+      const saved = normalizePlayerState(profile.data()?.state);
+      const imported: string[] = profile.data()?.importedRuns ?? [];
+      const state =
+        imported.includes(record.id) || saved.recordedRunIds.includes(record.id)
+          ? saved
+          : applyRunToPlayer(saved, record).state;
+      transaction.set(ledgerRef, record);
+      transaction.update(profileRef, {
+        state: { ...state, playerId: uid, pendingSyncQueue: [] },
+        importedRuns: imported.filter((id) => id !== record.id),
+        updatedAt: new Date().toISOString(),
+      });
+      if (publish && (!score?.exists() || record.score > score.data().score)) {
+        const entry: ScoreEntry = {
+          uid,
+          mode: record.mode as ScoreEntry["mode"],
+          season,
+          displayName: localAtStart.displayName,
+          region: localAtStart.region,
+          score: record.score,
+          accuracy: record.resolved
+            ? Math.round((record.correct / record.resolved) * 100)
+            : 100,
+          wave: record.wave,
+          completedAt: record.completedAt,
+        };
+        transaction.set(scoreRef, entry);
+      }
+    });
+    // Read again after await: a newly finished run must not be overwritten by this acknowledgement.
+    const latest = loadPlayer();
+    latest.pendingSyncQueue = latest.pendingSyncQueue.filter(
+      (r) => r.id !== record.id,
+    );
+    savePlayer(latest);
+  }
+  const profile = await getDoc(profileRef);
+  if (auth.currentUser?.uid !== uid) throw new Error("Account changed");
+  const latest = loadPlayer();
+  let merged = normalizePlayerState(profile.data()?.state);
+  for (const pending of latest.pendingSyncQueue)
+    if (!merged.recordedRunIds.includes(pending.id))
+      merged = applyRunToPlayer(merged, pending).state;
+  merged.playerId = uid;
+  merged.highScore = Math.max(merged.highScore, latest.highScore);
+  merged.displayName =
+    latest.displayName === "Operator" && merged.displayName !== "Operator"
+      ? merged.displayName
+      : latest.displayName;
+  merged.region =
+    latest.totalGames === 0 && merged.totalGames > 0
+      ? merged.region
+      : latest.region;
+  merged.equippedSkin = latest.equippedSkin;
+  merged.pendingSyncQueue = latest.pendingSyncQueue;
+  savePlayer(merged);
+  const remoteCheckpoint = profile.data()?.checkpoint;
+  const localCheckpoint = loadCheckpoint();
+  const nextCheckpoint =
+    localCheckpoint &&
+    (!isRunCheckpoint(remoteCheckpoint) ||
+      localCheckpoint.id !== remoteCheckpoint.id ||
+      localCheckpoint.tick >= remoteCheckpoint.tick)
+      ? localCheckpoint
+      : isRunCheckpoint(remoteCheckpoint) &&
+          !merged.recordedRunIds.includes(remoteCheckpoint.id)
+        ? remoteCheckpoint
+        : null;
+  if (!localCheckpoint && nextCheckpoint) saveCheckpoint(nextCheckpoint);
+  // Career counters are only changed by ledger transactions, never by this metadata update.
+  await updateDoc(profileRef, {
+    "state.displayName": merged.displayName,
+    "state.region": merged.region,
+    "state.equippedSkin": merged.equippedSkin,
+    checkpoint: nextCheckpoint,
+    updatedAt: new Date().toISOString(),
+  });
+}
+export function syncProgress(): Promise<void> {
+  if (syncing) return syncing;
+  syncing = performSync().finally(() => {
+    syncing = null;
+  });
+  return syncing;
 }
 
-export interface MultiplayerMatchData {
-  matchId: string;
+export interface DuelRoom {
+  id: string;
   hostId: string;
   hostName: string;
-  guestId?: string;
-  guestName?: string;
+  guestId: string | null;
+  guestName: string | null;
   hostScore: number;
   guestScore: number;
-  status: 'waiting' | 'active' | 'completed';
-  winner?: string;
+  hostDone: boolean;
+  guestDone: boolean;
+  status: "waiting" | "active";
   seed: number;
-  createdAt: string;
+  startAt: number | null;
+  createdAt: number;
 }
-
-// Global leaderboard subscription with fallback to offline storage
-export function subscribeToLeaderboard(
-  season: string,
-  regionFilter: string,
-  onUpdate: (entries: LeaderboardEntry[]) => void,
-  onError?: (err: any) => void
-) {
-  const colPath = 'leaderboard';
-  try {
-    const q = query(collection(db, colPath), orderBy('score', 'desc'), limit(50));
-    return onSnapshot(
-      q,
-      (snapshot) => {
-        let items: LeaderboardEntry[] = [];
-        snapshot.forEach((d) => {
-          items.push({ id: d.id, ...d.data() } as LeaderboardEntry);
-        });
-        if (regionFilter && regionFilter !== 'GLOBAL') {
-          items = items.filter(i => i.region === regionFilter);
-        }
-        if (season && season !== 'ALL') {
-          items = items.filter(i => i.season === season);
-        }
-        onUpdate(items);
-      },
-      (error) => {
-        handleFirestoreError(error, OperationType.GET, colPath);
-        if (onError) onError(error);
-      }
-    );
-  } catch (err) {
-    handleFirestoreError(err, OperationType.GET, colPath);
-    return () => {};
-  }
+export async function createRoom(displayName: string): Promise<string> {
+  if (!auth.currentUser) throw new Error("Account required");
+  const id = crypto.randomUUID().replaceAll("-", "").slice(0, 8).toUpperCase();
+  const room: DuelRoom = {
+    id,
+    hostId: auth.currentUser.uid,
+    hostName: displayName,
+    guestId: null,
+    guestName: null,
+    hostScore: 0,
+    guestScore: 0,
+    hostDone: false,
+    guestDone: false,
+    status: "waiting",
+    seed: crypto.getRandomValues(new Uint32Array(1))[0],
+    startAt: null,
+    createdAt: Date.now(),
+  };
+  await runTransaction(db, async (tx) => {
+    const ref = doc(db, "duels", id);
+    if ((await tx.get(ref)).exists()) throw new Error("Retry room");
+    tx.set(ref, room);
+  });
+  return id;
 }
-
-// Save high score to Firestore
-export async function submitLeaderboardScore(entry: Omit<LeaderboardEntry, 'id'>): Promise<boolean> {
-  const docId = `${entry.playerId}_${entry.season || 's1'}`;
-  const path = `leaderboard/${docId}`;
-  try {
-    await setDoc(doc(db, 'leaderboard', docId), entry, { merge: true });
-    return true;
-  } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, path);
-    return false;
-  }
-}
-
-// Sync player profile to Firestore
-export async function syncPlayerProfileToCloud(profile: PlayerProfileData): Promise<boolean> {
-  const path = `players/${profile.playerId}`;
-  try {
-    await setDoc(doc(db, 'players', profile.playerId), profile, { merge: true });
-    return true;
-  } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, path);
-    return false;
-  }
-}
-
-// Multiplayer: Host Match
-export async function hostMultiplayerMatch(match: MultiplayerMatchData): Promise<boolean> {
-  const path = `matches/${match.matchId}`;
-  try {
-    await setDoc(doc(db, 'matches', match.matchId), match);
-    return true;
-  } catch (err) {
-    handleFirestoreError(err, OperationType.CREATE, path);
-    return false;
-  }
-}
-
-// Multiplayer: Join Match
-export async function joinMultiplayerMatch(matchId: string, guestId: string, guestName: string): Promise<boolean> {
-  const path = `matches/${matchId}`;
-  try {
-    await updateDoc(doc(db, 'matches', matchId), {
-      guestId,
-      guestName,
-      status: 'active'
+export async function joinRoom(id: string, displayName: string): Promise<void> {
+  if (!auth.currentUser) throw new Error("Account required");
+  const uid = auth.currentUser.uid;
+  await runTransaction(db, async (tx) => {
+    const ref = doc(db, "duels", id);
+    const snap = await tx.get(ref);
+    const room = snap.data() as DuelRoom | undefined;
+    if (
+      !room ||
+      room.hostId === uid ||
+      room.status !== "waiting" ||
+      room.guestId ||
+      Date.now() - room.createdAt > 15 * 60 * 1000
+    )
+      throw new Error("Room unavailable");
+    tx.update(ref, {
+      guestId: uid,
+      guestName: displayName,
+      status: "active",
+      startAt: Date.now() + 5000,
     });
-    return true;
-  } catch (err) {
-    handleFirestoreError(err, OperationType.UPDATE, path);
-    return false;
-  }
+  });
 }
-
-// Multiplayer: Update Match Score
-export async function updateMatchScore(
-  matchId: string,
-  isHost: boolean,
+export const watchRoom = (
+  id: string,
+  next: (room: DuelRoom | null) => void,
+  error: (error: unknown) => void,
+) =>
+  onSnapshot(
+    doc(db, "duels", id),
+    (snap) => next(snap.exists() ? (snap.data() as DuelRoom) : null),
+    error,
+  );
+export async function cancelWaitingRoom(id: string): Promise<void> {
+  const ref = doc(db, "duels", id);
+  await runTransaction(db, async (tx) => {
+    const snapshot = await tx.get(ref);
+    if (
+      snapshot.exists() &&
+      snapshot.data().hostId === auth.currentUser?.uid &&
+      snapshot.data().status === "waiting"
+    )
+      tx.delete(ref);
+  });
+}
+export async function sendDuelScore(
+  room: DuelRoom,
   score: number,
-  isFinal: boolean = false
-): Promise<boolean> {
-  const path = `matches/${matchId}`;
-  try {
-    const updatePayload: Record<string, any> = isHost ? { hostScore: score } : { guestScore: score };
-    if (isFinal) {
-      updatePayload.status = 'completed';
-    }
-    await updateDoc(doc(db, 'matches', matchId), updatePayload);
-    return true;
-  } catch (err) {
-    handleFirestoreError(err, OperationType.UPDATE, path);
-    return false;
-  }
-}
-
-// Multiplayer: Listen to Match State
-export function listenToMatch(
-  matchId: string,
-  onUpdate: (match: MultiplayerMatchData | null) => void
+  done = false,
 ) {
-  const path = `matches/${matchId}`;
-  try {
-    return onSnapshot(
-      doc(db, 'matches', matchId),
-      (snap) => {
-        if (snap.exists()) {
-          onUpdate(snap.data() as MultiplayerMatchData);
-        } else {
-          onUpdate(null);
-        }
-      },
-      (err) => {
-        handleFirestoreError(err, OperationType.GET, path);
-      }
-    );
-  } catch (err) {
-    handleFirestoreError(err, OperationType.GET, path);
-    return () => {};
-  }
+  const uid = auth.currentUser?.uid;
+  if (!uid || ![room.hostId, room.guestId].includes(uid))
+    throw new Error("Not a participant");
+  const host = uid === room.hostId;
+  await updateDoc(
+    doc(db, "duels", room.id),
+    host
+      ? { hostScore: score, hostDone: done }
+      : { guestScore: score, guestDone: done },
+  );
 }

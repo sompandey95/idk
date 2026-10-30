@@ -1,0 +1,34 @@
+{
+  "duel": {
+    "sharedSeed": 790943345,
+    "hostScore": 100,
+    "guestSeesHostScore": "Opponent: HostQA\n100",
+    "hostElapsed": 7.416666666666667
+  },
+  "cloudSync": {
+    "expectedGames": 1,
+    "afterSync": 1,
+    "afterRetry": 1,
+    "pending": 0,
+    "highScore": 1234
+  },
+  "secondDeviceProfile": {
+    "highScore": 1234,
+    "totalGames": 1
+  },
+  "offlineCache": {
+    "controller": true,
+    "caches": [
+      "synapse-v2-b3e397b0b3af"
+    ]
+  },
+  "modalPause": true,
+  "offlineReload": {
+    "savedRunId": "a923ad0c-1a2a-4d9d-aaa9-ef7461058daa",
+    "restoredRunId": "a923ad0c-1a2a-4d9d-aaa9-ef7461058daa",
+    "savedTick": 192,
+    "restoredTick": 194
+  },
+  "languagePersistedOffline": "ja",
+  "pageErrors": []
+}

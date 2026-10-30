@@ -1,0 +1,9 @@
+{
+  "indexes": [
+    { "collectionGroup": "scores", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "mode", "order": "ASCENDING" }, { "fieldPath": "season", "order": "ASCENDING" }, { "fieldPath": "score", "order": "DESCENDING" }] },
+    { "collectionGroup": "scores", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "mode", "order": "ASCENDING" }, { "fieldPath": "season", "order": "ASCENDING" }, { "fieldPath": "score", "order": "ASCENDING" }] },
+    { "collectionGroup": "scores", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "mode", "order": "ASCENDING" }, { "fieldPath": "season", "order": "ASCENDING" }, { "fieldPath": "region", "order": "ASCENDING" }, { "fieldPath": "score", "order": "DESCENDING" }] },
+    { "collectionGroup": "scores", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "mode", "order": "ASCENDING" }, { "fieldPath": "season", "order": "ASCENDING" }, { "fieldPath": "region", "order": "ASCENDING" }, { "fieldPath": "score", "order": "ASCENDING" }] }
+  ],
+  "fieldOverrides": [{ "collectionGroup": "players_v2", "fieldPath": "state", "indexes": [] }, { "collectionGroup": "players_v2", "fieldPath": "checkpoint", "indexes": [] }, { "collectionGroup": "players_v2", "fieldPath": "importedRuns", "indexes": [] }]
+}

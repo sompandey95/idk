@@ -1,66 +1,106 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function owner(uid) { return signedIn() && request.auth.uid == uid; }
+    function validName(value) { return value is string && value.size() > 0 && value.size() <= 24; }
+    function validScore(value) { return value is int && value >= 0 && value <= 100000000; }
+    function validRegion(value) { return value in ['NA', 'EU', 'ASIA']; }
 
-    function isValidId(id) {
-      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    // Private progress and immutable submission receipts. Client scores are casual,
+    // not server-verified ranked results; identity alone cannot prove gameplay.
+    match /players_v2/{uid} {
+      allow get: if owner(uid);
+      allow list, delete: if false;
+      allow create, update: if owner(uid)
+        && request.resource.data.keys().hasOnly(['state', 'importedRuns', 'checkpoint', 'updatedAt'])
+        && request.resource.data.state is map
+        && request.resource.data.state.schemaVersion == 2
+        && request.resource.data.state.playerId == uid
+        && validName(request.resource.data.state.displayName)
+        && validRegion(request.resource.data.state.region)
+        && request.resource.data.state.highScore is number
+        && request.resource.data.state.highScore >= 0
+        && request.resource.data.state.totalGames is number
+        && request.resource.data.state.totalGames >= 0
+        && request.resource.data.importedRuns is list
+        && request.resource.data.updatedAt is string;
+      match /runs/{runId} {
+        allow get: if owner(uid);
+        allow list: if false;
+        allow create: if owner(uid) && request.resource.data.id == runId
+          && request.resource.data.keys().hasOnly(['id', 'mode', 'seed', 'score', 'wave', 'correct', 'resolved', 'quarantined', 'maxStreak', 'peakDifficulty', 'tuningCount', 'focusUses', 'elapsed', 'startedAt', 'completedAt'])
+          && request.resource.data.mode in ['adaptive', 'daily', 'sprint', 'duel']
+          && validScore(request.resource.data.score)
+          && request.resource.data.correct is int && request.resource.data.correct >= 0
+          && request.resource.data.resolved is int && request.resource.data.resolved >= request.resource.data.correct;
+        allow update, delete: if false;
+      }
     }
 
-    function incoming() {
-      return request.resource.data;
-    }
-
-    function existing() {
-      return resource.data;
-    }
-
-    // Default deny
-    match /{document=**} {
-      allow read, write: if false;
-    }
-
-    match /test/{docId} {
-      allow read, write: if true;
-    }
-
-    match /leaderboard/{entryId} {
+    match /scores/{entryId} {
       allow read: if true;
-      allow create: if isValidId(entryId)
-        && incoming().keys().hasAll(['playerId', 'displayName', 'score', 'epoch', 'accuracy', 'region', 'season', 'timestamp'])
-        && incoming().playerId is string && incoming().playerId.size() <= 128
-        && incoming().displayName is string && incoming().displayName.size() <= 50
-        && incoming().score is number && incoming().score >= 0
-        && incoming().epoch is number && incoming().epoch >= 1
-        && incoming().accuracy is number && incoming().accuracy >= 0 && incoming().accuracy <= 100
-        && incoming().region is string && incoming().region.size() <= 16
-        && incoming().season is string && incoming().season.size() <= 32;
-      allow update: if isValidId(entryId)
-        && incoming().score is number && incoming().score >= existing().score;
+      function validEntry() {
+        let d = request.resource.data;
+        return signedIn()
+          && d.keys().hasAll(['uid', 'displayName', 'region', 'score', 'accuracy', 'wave', 'mode', 'season', 'completedAt'])
+          && d.keys().hasOnly(['uid', 'displayName', 'region', 'score', 'accuracy', 'wave', 'mode', 'season', 'completedAt'])
+          && d.uid == request.auth.uid
+          && d.mode in ['adaptive', 'daily', 'sprint']
+          && d.season is string && d.season.size() <= 32
+          && entryId == d.uid + '_' + d.mode + '_' + d.season
+          && validName(d.displayName) && validRegion(d.region) && validScore(d.score)
+          && d.accuracy is number && d.accuracy >= 0 && d.accuracy <= 100
+          && d.wave is int && d.wave >= 1 && d.wave <= 100000
+          && d.completedAt is string;
+      }
+      allow create: if validEntry();
+      allow update: if validEntry() && resource.data.uid == request.auth.uid
+        && request.resource.data.score >= resource.data.score;
+      allow delete: if false;
     }
 
-    match /players/{playerId} {
-      allow read: if true;
-      allow create, update: if isValidId(playerId)
-        && incoming().keys().hasAll(['playerId', 'displayName', 'avatar', 'region', 'highScore', 'totalGames', 'ddaRating', 'achievements', 'updatedAt'])
-        && incoming().playerId is string && incoming().playerId.size() <= 128
-        && incoming().displayName is string && incoming().displayName.size() <= 50
-        && incoming().avatar is string && incoming().avatar.size() <= 64
-        && incoming().region is string && incoming().region.size() <= 16
-        && incoming().highScore is number && incoming().highScore >= 0
-        && incoming().totalGames is number && incoming().totalGames >= 0
-        && incoming().ddaRating is number;
+    match /duels/{roomId} {
+      // Room codes can be looked up by signed-in players; the room directory is private.
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if signedIn() && roomId.matches('^[A-F0-9]{8}$')
+        && request.resource.data.keys().hasOnly(['id', 'hostId', 'hostName', 'guestId', 'guestName', 'hostScore', 'guestScore', 'hostDone', 'guestDone', 'status', 'seed', 'startAt', 'createdAt'])
+        && request.resource.data.id == roomId
+        && request.resource.data.hostId == request.auth.uid
+        && validName(request.resource.data.hostName)
+        && request.resource.data.guestId == null && request.resource.data.guestName == null
+        && request.resource.data.hostScore == 0 && request.resource.data.guestScore == 0
+        && request.resource.data.hostDone == false && request.resource.data.guestDone == false
+        && request.resource.data.status == 'waiting' && request.resource.data.startAt == null
+        && request.resource.data.seed is int && request.resource.data.createdAt is int;
+      allow update: if signedIn() && (
+        // Reserve a guest seat exactly once; a guest cannot change the host or seed.
+        (resource.data.status == 'waiting' && resource.data.guestId == null
+          && request.auth.uid != resource.data.hostId
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['guestId', 'guestName', 'status', 'startAt'])
+          && request.resource.data.guestId == request.auth.uid
+          && validName(request.resource.data.guestName)
+          && request.resource.data.status == 'active'
+          && request.resource.data.startAt is int
+          && request.resource.data.startAt > request.time.toMillis()
+          && request.resource.data.startAt < request.time.toMillis() + 15000
+          && resource.data.createdAt > request.time.toMillis() - 900000)
+        || (resource.data.status == 'active' && request.auth.uid == resource.data.hostId
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['hostScore', 'hostDone'])
+          && validScore(request.resource.data.hostScore)
+          && request.resource.data.hostScore >= resource.data.hostScore
+          && request.resource.data.hostDone is bool
+          && (!resource.data.hostDone || request.resource.data.hostDone))
+        || (resource.data.status == 'active' && request.auth.uid == resource.data.guestId
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['guestScore', 'guestDone'])
+          && validScore(request.resource.data.guestScore)
+          && request.resource.data.guestScore >= resource.data.guestScore
+          && request.resource.data.guestDone is bool
+          && (!resource.data.guestDone || request.resource.data.guestDone))
+      );
+      allow delete: if signedIn() && request.auth.uid == resource.data.hostId && resource.data.status == 'waiting';
     }
-
-    match /matches/{matchId} {
-      allow read: if true;
-      allow create: if isValidId(matchId)
-        && incoming().keys().hasAll(['matchId', 'hostId', 'hostName', 'status', 'createdAt'])
-        && incoming().matchId is string && incoming().matchId.size() <= 128
-        && incoming().hostId is string && incoming().hostId.size() <= 128
-        && incoming().hostName is string && incoming().hostName.size() <= 50
-        && incoming().status is string && incoming().status.size() <= 20;
-      allow update: if isValidId(matchId)
-        && incoming().status is string;
-    }
+    match /{document=**} { allow read, write: if false; }
   }
 }

@@ -1,0 +1,434 @@
+{
+  "viewportChecks": [
+    {
+      "name": "desktop",
+      "dpr": 1,
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "canvasCSS": {
+        "width": 1440,
+        "height": 779.5,
+        "top": 120.5,
+        "bottom": 900
+      },
+      "canvasPixels": {
+        "width": 1440,
+        "height": 779
+      },
+      "contextScale": 1,
+      "visibleNodeCenters": [
+        "in_0",
+        "in_1",
+        "in_2",
+        "hid_0",
+        "hid_1",
+        "hid_2",
+        "hid_3",
+        "out_0",
+        "out_1",
+        "out_2",
+        "out_q"
+      ],
+      "totalNodes": 11,
+      "buttons": [
+        {
+          "text": "GLOBAL RANKINGS",
+          "width": 38,
+          "height": 38
+        },
+        {
+          "text": "ACHIEVEMENTS",
+          "width": 38,
+          "height": 38
+        },
+        {
+          "text": "NEURAL DUEL",
+          "width": 38,
+          "height": 38
+        },
+        {
+          "text": "OPERATOR PROFILE",
+          "width": 38,
+          "height": 38
+        },
+        {
+          "text": "REGION / LANG",
+          "width": 38,
+          "height": 38
+        },
+        {
+          "text": "AUDIO",
+          "width": 38,
+          "height": 38
+        },
+        {
+          "text": "HAPTICS",
+          "width": 38,
+          "height": 38
+        },
+        {
+          "text": "PAUSED",
+          "width": 38,
+          "height": 38
+        },
+        {
+          "text": "PRUNE WEAK",
+          "width": 100,
+          "height": 26.5
+        },
+        {
+          "text": "INVERT",
+          "width": 73.609375,
+          "height": 26.5
+        },
+        {
+          "text": "OVERDRIVE [F]",
+          "width": 123.8125,
+          "height": 26.5
+        }
+      ]
+    },
+    {
+      "name": "desktop-hidpi",
+      "dpr": 2,
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "canvasCSS": {
+        "width": 1440,
+        "height": 779.5,
+        "top": 120.5,
+        "bottom": 900
+      },
+      "canvasPixels": {
+        "width": 2880,
+        "height": 1559
+      },
+      "contextScale": 2,
+      "visibleNodeCenters": [
+        "in_0"
+      ],
+      "totalNodes": 11,
+      "buttons": [
+        {
+          "text": "GLOBAL RANKINGS",
+          "width": 38,
+          "height": 38
+        },
+        {
+          "text": "ACHIEVEMENTS",
+          "width": 38,
+          "height": 38
+        },
+        {
+          "text": "NEURAL DUEL",
+          "width": 38,
+          "height": 38
+        },
+        {
+          "text": "OPERATOR PROFILE",
+          "width": 38,
+          "height": 38
+        },
+        {
+          "text": "REGION / LANG",
+          "width": 38,
+          "height": 38
+        },
+        {
+          "text": "AUDIO",
+          "width": 38,
+          "height": 38
+        },
+        {
+          "text": "HAPTICS",
+          "width": 38,
+          "height": 38
+        },
+        {
+          "text": "PAUSED",
+          "width": 38,
+          "height": 38
+        },
+        {
+          "text": "PRUNE WEAK",
+          "width": 100,
+          "height": 26.5
+        },
+        {
+          "text": "INVERT",
+          "width": 73.609375,
+          "height": 26.5
+        },
+        {
+          "text": "OVERDRIVE [F]",
+          "width": 123.8125,
+          "height": 26.5
+        }
+      ]
+    },
+    {
+      "name": "phone",
+      "dpr": 3,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "canvasCSS": {
+        "width": 390,
+        "height": 674.5,
+        "top": 169.5,
+        "bottom": 844
+      },
+      "canvasPixels": {
+        "width": 780,
+        "height": 1349
+      },
+      "contextScale": 2,
+      "visibleNodeCenters": [
+        "in_0"
+      ],
+      "totalNodes": 11,
+      "buttons": [
+        {
+          "text": "GLOBAL RANKINGS",
+          "width": 30,
+          "height": 30
+        },
+        {
+          "text": "ACHIEVEMENTS",
+          "width": 30,
+          "height": 30
+        },
+        {
+          "text": "NEURAL DUEL",
+          "width": 30,
+          "height": 30
+        },
+        {
+          "text": "OPERATOR PROFILE",
+          "width": 30,
+          "height": 30
+        },
+        {
+          "text": "REGION / LANG",
+          "width": 30,
+          "height": 30
+        },
+        {
+          "text": "AUDIO",
+          "width": 30,
+          "height": 30
+        },
+        {
+          "text": "HAPTICS",
+          "width": 30,
+          "height": 30
+        },
+        {
+          "text": "PAUSED",
+          "width": 30,
+          "height": 30
+        },
+        {
+          "text": "PRUNE WEAK",
+          "width": 100,
+          "height": 26.5
+        },
+        {
+          "text": "INVERT",
+          "width": 73.609375,
+          "height": 26.5
+        },
+        {
+          "text": "OVERDRIVE [F]",
+          "width": 123.8125,
+          "height": 26.5
+        }
+      ]
+    },
+    {
+      "name": "phone-landscape",
+      "dpr": 1,
+      "viewport": {
+        "width": 844,
+        "height": 390
+      },
+      "canvasCSS": {
+        "width": 844,
+        "height": 420,
+        "top": 174.5,
+        "bottom": 594.5
+      },
+      "canvasPixels": {
+        "width": 844,
+        "height": 420
+      },
+      "contextScale": 1,
+      "visibleNodeCenters": [
+        "in_0",
+        "in_1",
+        "hid_0",
+        "hid_1",
+        "out_0",
+        "out_1"
+      ],
+      "totalNodes": 11,
+      "buttons": [
+        {
+          "text": "GLOBAL RANKINGS",
+          "width": 38,
+          "height": 38
+        },
+        {
+          "text": "ACHIEVEMENTS",
+          "width": 38,
+          "height": 38
+        },
+        {
+          "text": "NEURAL DUEL",
+          "width": 38,
+          "height": 38
+        },
+        {
+          "text": "OPERATOR PROFILE",
+          "width": 38,
+          "height": 38
+        },
+        {
+          "text": "REGION / LANG",
+          "width": 38,
+          "height": 38
+        },
+        {
+          "text": "AUDIO",
+          "width": 38,
+          "height": 38
+        },
+        {
+          "text": "HAPTICS",
+          "width": 38,
+          "height": 38
+        },
+        {
+          "text": "PAUSED",
+          "width": 38,
+          "height": 38
+        },
+        {
+          "text": "PRUNE WEAK",
+          "width": 100,
+          "height": 26.5
+        },
+        {
+          "text": "INVERT",
+          "width": 73.609375,
+          "height": 26.5
+        },
+        {
+          "text": "OVERDRIVE [F]",
+          "width": 123.8125,
+          "height": 26.5
+        }
+      ]
+    }
+  ],
+  "runtimeErrors": [],
+  "cloudRequestsBlocked": 18,
+  "dragPreview": {
+    "dashedPreviewDrawCalls": 0
+  },
+  "weightChangeSpawnsPacket": {
+    "before": [
+      "pkt_1"
+    ],
+    "after": [
+      "pkt_1",
+      "pkt_2"
+    ]
+  },
+  "gameContinuesBehindLeaderboard": {
+    "before": 0,
+    "after": 2
+  },
+  "duelBefore": {
+    "header": "CYBER_5054: 0VSOPPONENT: 265TIME REMAINING:59s",
+    "score": 0
+  },
+  "duelAfterSuccess": {
+    "header": "CYBER_5054: 225VSOPPONENT: 0TIME REMAINING:60s",
+    "score": 1
+  },
+  "soloAfterDuel": {
+    "header": "CYBER_5054: 0VSOPPONENT: 0TIME REMAINING:60s",
+    "score": 0
+  },
+  "storage": {
+    "dailyCompletedAtZeroAccuracy": true,
+    "firstPulseUnlockedWithZeroCorrect": true,
+    "expAfterDailyReward": 1550,
+    "actualTier": 1,
+    "expectedTier": 2,
+    "queuedRuns": 1,
+    "unicodeExport": "InvalidCharacterError: Failed to execute 'btoa' on 'Window': The string to be encoded contains characters outside of the Latin1 range.",
+    "serviceWorkers": 0
+  },
+  "routingWeightProbe": {
+    "before": "out_0",
+    "after": "out_0",
+    "changedWeights": [
+      {
+        "id": "syn_h1_out0",
+        "weight": -2
+      },
+      {
+        "id": "syn_h1_out1",
+        "weight": 2
+      }
+    ]
+  },
+  "quarantineAtZeroIntegrity": {
+    "state": "playing",
+    "hud": "SCORE0EPOCH1DDA TELEMETRY:DIFF: 0.75x|ACC: 0%|LAT: 387ms|DDA: STABILIZING (-)CORE INTEGRITY:0%PRUNE WEAKINVERTOVERDRIVE [F]"
+  },
+  "localizationKeys": [
+    {
+      "language": "en",
+      "keys": 56,
+      "missing": []
+    },
+    {
+      "language": "es",
+      "keys": 56,
+      "missing": []
+    },
+    {
+      "language": "de",
+      "keys": 56,
+      "missing": []
+    },
+    {
+      "language": "fr",
+      "keys": 56,
+      "missing": []
+    },
+    {
+      "language": "ja",
+      "keys": 56,
+      "missing": []
+    },
+    {
+      "language": "zh",
+      "keys": 56,
+      "missing": []
+    },
+    {
+      "language": "ko",
+      "keys": 56,
+      "missing": []
+    }
+  ]
+}
